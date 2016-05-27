@@ -1,0 +1,55 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Make sure OpenSMTPD jail is started
+  iocage: state=started tag='{{ production_jails.opensmtpd.tag }}'
+  register: opensmtpd_jail
+
+- name: Install OpenSMTPD
+  iocage: state=pkg tag={{ production_jails.opensmtpd.tag }} cmd="install -y {{ production_jails.opensmtpd.pkgs | join(' ') }}"
+  when:
+  - "'uuid' in opensmtpd_jail and (opensmtpd_jail['uuid'] is defined and opensmtpd_jail['uuid'] != '-')"
+  run_once: true
+
+- name: Deploy OpenSMTPD config files
+  when:
+  - "'uuid' in opensmtpd_jail and (opensmtpd_jail['uuid'] is defined and opensmtpd_jail['uuid'] != '-')"
+  template: src='{{ item.name }}.j2' dest='{{ opensmtpd_jail_dir.stat.path }}{{ item.path }}/{{ item.name }}' mode={{ item.mode}} owner=root group=257
+  with_items:
+          - { name: "authinfo.db", path: "/usr/local/etc/mail", mode: 600 }
+          - { name: "smtpd.conf", path: "/usr/local/etc/mail", mode: 644 }
+  register: opensmtpd_config_deployed
+
+- name: Enable OpenSMTPD service
+  lineinfile: dest={{ opensmtpd_jail_dir.stat.path }}/etc/rc.conf state=present insertafter=EOF line="smtpd_enable=\"YES\""
+  when:
+  - "'uuid' in opensmtpd_jail and (opensmtpd_jail['uuid'] is defined and opensmtpd_jail['uuid'] != '-')"
+
+- name: Fix OpenSMTPD hosts file
+  lineinfile: dest={{ opensmtpd_jail_dir.stat.path }}/etc/hosts state=present line="{{ production_jails.opensmtpd.ip }}  {{ production_jails.opensmtpd.hostname }} {{ opensmtpd_jail.uuid }}" regexp="^{{ production_jails.opensmtpd.ip }}"
+  when:
+  - "'uuid' in opensmtpd_jail and (opensmtpd_jail['uuid'] is defined and opensmtpd_jail['uuid'] != '-')"
+
+# TODO: move to notify/handler thing once iocage module is there
+- name: start opensmtpd
+  iocage: state=exec tag={{ opensmtpd_jail.uuid }} cmd="/bin/sh -c \"service smtpd restart\""

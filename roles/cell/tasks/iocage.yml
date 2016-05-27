@@ -1,0 +1,217 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Check if template jail already exists
+  iocage: state=exists tag='{{ testing_jails.template.tag }}'
+  register: template_jail_exists
+  ignore_errors: true
+  tags:
+  - iocage-template
+  - iocage-cell
+
+- name: Create template jail
+  iocage: state=template tag='{{ testing_jails.template.tag }}' release={{ iocage_release_version }} properties="pkglist='{{ iocage_jails_dir }}/pkglist.txt' ip4_addr='{{ testing_jails.template.interface }}|{{ testing_jails.template.ip }}' allow_sysvipc='1' resolver='nameserver {{ internal_ip }}'"
+  iocage: state=template tag='{{ testing_jails.template.tag }}' release={{ iocage_release_version }} properties="pkglist='/iocage/jails/pkglist.txt' ip4_addr='{{ testing_jails.template.interface }}|{{ testing_jails.template.ip }}' allow_sysvipc='1' resolver='nameserver {{ internal_ip }}'"
+  ignore_errors: true
+  tags:
+  - iocage-cell
+  - iocage-template
+ register: template_jail
+  when:
+  # -ansible_connection != "chroot""
+  - template_jail_exists | failed
+
+- name: Check if template jail already exists
+  iocage: state=exists tag='{{ testing_jails.template.tag }}'
+  tags:
+  - iocage-template
+  - iocage-template-uuid
+  - iocage-cell
+  register: template_jail
+
+- name: Register jail's root directory
+  stat: path='{{ iocage_mountpoint.stdout_lines[0] }}/templates/{{ testing_jails.template.tag }}/root'
+  register: template_jail_dir
+  tags:
+  - branding
+  - iocage-cell
+  - iocage-template
+
+- name: Install fractalcells MOTD into template jail
+  copy: src="motd" dest="{{ template_jail_dir.stat.path }}/etc/motd" mode="444"
+  tags:
+  - branding
+  - iocage-cell
+  - iocage-template
+
+- name: Start template jail
+  iocage: state=started tag='{{ testing_jails.template.tag }}' force=yes
+  when:
+  # -ansible_connection != "chroot""
+  tags:
+  - iocage-cell
+  - iocage-template
+  register: template_jail
+
+- assert:
+    that:
+      - template_jail|success
+
+- name: Check if template jail needs pkg bootstrap
+  stat: path={{ iocage_mountpoint.stdout_lines[0] }}/templates/{{ testing_jails.template.tag }}/root/var/db/pkg/local.sqlite
+  register: template_jail_pkgdb
+  run_once: true
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Remove {{ host_os }}.conf
+  file: path={{ template_jail_dir.stat.path }}/etc/pkg/{{ host_os }}.conf state=absent
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Remove FreeBSD.conf
+  file: path={{ template_jail_dir.stat.path }}/etc/pkg/FreeBSD.conf state=absent
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Deploy pkg.fractalcells.com repo config
+  template: src='{{ item.name }}.j2' dest='{{ template_jail_dir.stat.path }}/{{ item.path }}/{{ item.name }}' mode=0644
+  when:
+  - ansible_connection != "chroot"
+  with_items:
+  - { name: "fractalcells.conf", path: "/etc/pkg", mode: 644 }
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: bsdinstall create package directory
+  file: path={{ template_jail_dir.stat.path }}/packages  state=directory
+  when:
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: bsdinstall nullfsmount packages
+  local_action: shell mount -t nullfs /packages /mnt/{{ template_jail_dir.stat.path }}/packages
+  ignore_errors: yes
+  when:
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: bsdinstall Add Fractalcells config
+  raw: '/bin/sh -c "/bin/echo fractalcells: { url: file:///packages/FreeBSD:10:amd64, enabled: true, priority: 10 } > {{ template_jail_dir.stat.path }}/etc/pkg/fractalcells.conf"'
+  when:
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Bootstrap pkg for template jail
+  iocage: state=exec tag='{{ testing_jails.template.tag }}' cmd='/bin/sh -c "ASSUME_ALWAYS_YES=yes /usr/sbin/pkg bootstrap -f && /usr/local/sbin/pkg update -f"'
+  when:
+  - template_jail|success
+  - not template_jail_pkgdb.stat.exists
+  - ansible_connection != "chroot"
+  run_once: true
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Bootstrap pkg for template jail
+  iocage: state=exec tag='{{ testing_jails.template.tag }}' cmd='/bin/sh -c "ASSUME_ALWAYS_YES=yes /usr/sbin/pkg add /packages/FreeBSD:10:amd64/All/pkg-1*.txz -f && /usr/local/sbin/pkg update -f"'
+  when:
+  - template_jail|success
+  - not template_jail_pkgdb.stat.exists
+  - ansible_connection != "chroot"
+  run_once: true
+  tags:
+  - iocage-cell
+  - iocage-template
+
+# TODO: put checking sauce to see if that actually needs to be done.
+- name: Install all of the things
+  iocage: state=pkg tag={{ testing_jails.template.tag  }} cmd="install -y {{ testing_jails.template.pkgs | join(' ') }}"
+  when:
+  - template_jail|success
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: nullfs-umount packages
+  local_action: shell umount /mnt/{{ template_jail_dir.stat.path }}/packages;
+  ignore_errors: yes
+  when:
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: bsdinstall remove package directory
+  file: path={{ template_jail_dir.stat.path }}/packages  state=absent
+  when:
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Deploy config files for template
+  when:
+  - template_jail|success
+  template: src='{{ item.name }}.j2' dest='{{ template_jail_dir.stat.path }}{{ item.path }}/{{ item.name }}' mode={{ item.mode}} owner=root group=257
+  with_items:
+  - { name: "zabbix_agentd.conf", path: "/usr/local/etc/zabbix24", mode: 644 }
+  - { name: "hosts", path: "/etc", mode: 644 }
+  - { name: "syslog.conf", path: "/etc", mode: 644 }
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Enable zabbix_agentd service
+  lineinfile: dest={{ template_jail_dir.stat.path }}/etc/rc.conf state=present insertafter=EOF line={{ item.line }}
+  with_items:
+  - { line: "zabbix_agentd_enable=\"YES\"" }
+  - { line: "syslogd_enable=\"YES\"" }
+  - { line: "syslogd_flags=\"-s -v -v\"" }
+  when:
+  - template_jail|success
+  tags:
+  - iocage-cell
+  - iocage-template
+
+- name: Stop template jail
+  iocage: state=stopped tag='{{ testing_jails.template.tag }}'
+  tags:
+  - iocage-cell
+  - iocage-template
+  when:
+  - template_jail|success
+  # -ansible_connection != "chroot""
+  register: template_jail
+
+# NOTE: Create infrastructure jails in the 'cell' role!

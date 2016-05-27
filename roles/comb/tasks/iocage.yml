@@ -1,0 +1,113 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Check if zpool is configured for iocage
+  shell: /sbin/zfs get mountpoint {{ iocage_zpool }}/iocage
+  ignore_errors: true
+  register: zpool_activated
+  tags:
+  - iocage-comb
+  - jenkins
+  - iocage-cell
+
+- name: Mark zpool for iocage usage
+  shell: iocage activate {{ iocage_zpool }}
+  when:
+  - zpool_activated | failed
+  register: zpool_activated
+  tags:
+  - iocage-comb
+
+- name: Register iocage mountpoint
+  shell: /sbin/zfs get -H mountpoint {{ iocage_zpool }}/iocage | awk '{print $3}'
+  register: iocage_mountpoint
+  when:
+  - zpool_activated | success
+  tags:
+  - iocage-comb
+  - jenkins
+  - iocage-cell
+
+- name: Check if we can skip downloading the release
+  stat: path='{{iocage_mountpoint }}{{ iocage_releases_dir }}/{{ iocage_release_version }}'
+  register: release_dir
+  tags:
+  - iocage-comb
+  - pkg-server
+
+- name: bsdinstall Prepare target area
+  file: path=/usr/freebsd-dist state=directory
+  when: 
+  - ansible_connection == "chroot"
+  tags: 
+  - iocage-comb
+
+- name: bsdinstall Copy files
+  copy: src=/usr/freebsd-dist/{{ item.name }} dest=/usr/freebsd-dist/{{ item.name }}
+  with_items:
+  - { name: "src.txz" }
+  - { name: "base.txz" }
+  when: 
+  - ansible_connection == "chroot"
+  tags: 
+  - iocage-comb
+  
+- name: Fetch {{ host_os }} release {{ iocage_release_version }}
+  shell: echo "{{ iocage_release_version }}" | /usr/local/sbin/iocage fetch ftpfiles="{{ iocage_ftp_files}}"  ftphost="{{ iocage_ftp_host }}" ftpdir="{{ iocage_ftp_dir }}"
+
+  when: 
+  - release_dir.stat.isdir is undefined
+  - ansible_connection != "chroot"
+  tags:
+  - iocage-comb
+  - pkg-server
+
+- name: bsdinstall Fetch {{ host_os }} release {{ iocage_release_version }}
+  shell: echo "{{ iocage_release_version }}" | /usr/local/sbin/iocage fetch ftpfiles="{{ iocage_ftp_files }}"  ftplocaldir=/usr/freebsd-dist
+
+  when: 
+  - release_dir.stat.isdir is undefined
+  - ansible_connection == "chroot"
+  tags:
+  - iocage-comb
+  - pkg-server
+
+- name: Check if it is now present
+  stat: path='{{ iocage_mountpoint }}{{ iocage_releases_dir }}/{{ iocage_release_version }}'
+  when: release_dir.stat.isdir is undefined
+  tags:
+    - iocage-comb
+  register: release_dir
+
+- name: Create pkglist file
+  copy: src=pkglist.txt dest='/iocage/jails/pkglist.txt'
+#  copy: src=pkglist.txt dest='{{ iocage_mountpoint }}{{ iocage_jails_dir }}/pkglist.txt'
+  tags:
+  - iocage-comb
+
+- name: Enable iocage service
+  tags:
+  - iocage-comb
+  service:
+    name: iocage
+    enabled: true

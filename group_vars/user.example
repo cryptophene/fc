@@ -1,0 +1,8 @@
+user:
+  handle:       'chris'
+  id:           '1000'
+  name:         'Christian Meier'
+  groups:       'chris,wheel'
+  shell:        '/bin/sh'
+  password:     'notyourproblem'
+  ssh_pub_key:  'ssh-rsa AAAAB... chris@root.com'

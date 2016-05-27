@@ -1,0 +1,125 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+dependencies:
+- role: postgresql-data
+- role: nginx_proxy
+
+- name: Make sure Gitlab jail is started
+  iocage: state=started tag='{{ production_jails.gitlab.tag }}'
+  register: gitlab_jail
+
+- name: Enable Gitlab services
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+  lineinfile: dest={{ gitlab_jail_dir.stat.path }}/etc/rc.conf state=present insertafter=EOF line="{{ item.line }}"
+  with_items:
+  - { line: "nginx_enable=\"YES\"" }
+  - { line: "redis_enable=\"YES\"" }
+  - { line: "gitlab_enable=\"YES\"" }
+
+- name: Install Gitlab
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+  iocage: state=pkg tag={{ production_jails.gitlab.tag }} cmd="install -y {{ production_jails.gitlab.pkgs | join(' ') }}"
+
+- name: Deploy Redis config
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+  lineinfile: dest={{ gitlab_jail_dir.stat.path }}/usr/local/etc/redis.conf state=present insertafter=EOF line="{{ item.line }}"
+  with_items:
+  - { line: "unixsocket /var/run/redis/redis.sock" }
+  - { line: "unixsocketperm 770" }
+
+
+- name: Create directories
+  file: path='{{ gitlab_jail_dir.stat.path }}{{ item.path }}' state=directory mode={{ item.mode }} owner={{ item.owner }} group={{ item.group }}
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+  with_items:
+  - { path: '/var/log/nginx', mode: '755', owner: www, group: www  }
+
+- name: Deploy Gitlab configs
+  template: src='{{ item.name }}.j2' dest='{{ gitlab_jail_dir.stat.path }}/{{ item.path }}/{{ item.name }}' mode=0644
+  with_items:
+  - { name: "gitlab.yml", path: "/usr/local/www/gitlab/config", mode: 644 }
+  - { name: "database.yml", path: "/usr/local/www/gitlab/config", mode: 644 }
+  - { name: "secrets.yml", path: "/usr/local/www/gitlab/config", mode: 644 }
+  - { name: "unicorn.rb", path: "/usr/local/www/gitlab/config", mode: 644 }
+  - { name: "authmethod_gitlab.sql", path: "/root", mode: 644 }
+  - { name: "nginx.conf", path: "/usr/local/etc/nginx", mode: 644 }
+
+- name: Deploy Gitlab secadm config
+  template: src='{{ item.name }}.j2' dest='{{ gitlab_jail_dir.stat.path }}/{{ item.path }}/{{ item.name }}' mode=0644
+  with_items:
+  - { name: "secadm.rules", path: "/usr/local/etc", mode: 644 }
+  when:
+  - host_os == 'HardenedBSD'
+
+- name: Load secadm rules
+  iocage: state=exec tag={{ gitlab_jail.uuid }} cmd="/bin/sh -c \"secadm load /usr/local/etc/secadm.rules\""
+  when:
+  - gitlab_jail | success
+  - host_os == 'HardenedBSD'
+
+- name: Start Gitlab nginx & redis
+  iocage: state=exec tag={{ gitlab_jail.uuid }} cmd="/bin/sh -c \"{{ item.cmd }}\""
+  with_items:
+  - { cmd: "service nginx restart" }
+  - { cmd: "service redis restart" }
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+
+- name: Find db cookie
+  stat: path={{ gitlab_jail_dir.stat.path }}/usr/local/www/gitlab/.db.setup
+  register: gitlab_db_cookie
+
+- name: Execute stuff
+  iocage: state=exec tag={{ gitlab_jail.uuid }} user=root cmd="/bin/sh -c \"{{ item.cmd }}\""
+  with_items:
+  - { cmd: "cd /usr/local/www/gitlab && echo yes | rake gitlab:setup RAILS_ENV=production GITLAB_ROOT_PASSWORD='{{ config.gitlab.root_password }}'" }
+  - { cmd: "cd /usr/local/www/gitlab && rake gitlab:env:info RAILS_ENV=production" }
+  - { cmd: "cd /usr/local/www/gitlab && rake assets:precompile RAILS_ENV=production" }
+  - { cmd: "chown git:git /usr/local/www/gitlab/log/application.log" }
+  - { cmd: "chown git:git /usr/local/www/gitlab/log/production.log" }
+  - { cmd: "touch /usr/local/share/gitlab-shell/gitlab-shell.log && chown git:git /usr/local/share/gitlab-shell/gitlab-shell.log" }
+  - { cmd: "touch /usr/local/www/gitlab/.db.setup" }
+  - { cmd: "pw groupmod redis -m git" }
+  when:
+  - not gitlab_db_cookie.stat.exists
+
+- name: Load Gitlab Authmethod SQL
+  iocage: state=exec tag={{ gitlab_jail.uuid }} user=root cmd="/bin/sh -c \"PGPASSWORD='{{ data.gitlab.password }}' psql -h {{ production_jails.postgresql.ip }} -U {{ data.gitlab.dbuser }} {{ data.gitlab.dbname }} < /root/authmethod_gitlab.sql \""
+
+- name: Remove Gitlab Authmethod SQL
+  file: path={{ gitlab_jail_dir.stat.path }}/root/authmethod_gitlab.sql state=absent
+- name: Start Gitlab
+  iocage: state=exec tag={{ gitlab_jail.uuid }} cmd="/bin/sh -c \"{{ item.cmd }}\""
+  with_items:
+  - { cmd: "service gitlab restart" }
+  when:
+  - "'uuid' in gitlab_jail and (gitlab_jail['uuid'] is defined and gitlab_jail['uuid'] != '-')"
+#
+- name: Preload Gitlab
+  shell: sleep 10 && fetch -o - http://{{ production_jails.gitlab.ip }}:80/
+  ignore_errors: yes

@@ -1,0 +1,91 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Append some settings to make.conf
+  lineinfile: dest=/etc/make.conf line={{ item.line }} create=yes
+  with_items:
+          - { line: "DEFAULT_VERSIONS=pgsql=9.4" }
+  tags:
+  - comb-misc
+  - pkg-server
+- name: Update pkg to latest version
+  pkgng: name=pkg state=present
+  ignore_errors: true
+  tags:
+  - comb-misc
+  - pkg-server
+
+- name: Remove {{ host_os }}.conf
+  file: path=/etc/pkg/{{ host_os }}.conf state=absent
+  tags:
+  - comb-misc
+
+- name: Remove FreeBSD.conf
+  file: path=/etc/pkg/FreeBSD.conf state=absent
+  tags:
+  - comb-misc
+
+- name: Deploy pkg.fractalcells.com repo config
+  template: src=fractalcells.conf.j2 dest=/etc/pkg/fractalcells.conf mode=0644
+  when:
+  - ansible_connection != "chroot"
+  tags:
+  - comb-misc
+
+- name: Install helpful default config files
+  copy: src="{{ item.name }}" dest="{{ item.path }}" mode="{{ item.mode }}"
+  with_items:
+  - { name: "tmux.conf", path: "/usr/local/etc/tmux.conf", mode: 644 }
+  - { name: "zshrc", path: "/usr/local/etc/zshrc", mode: 644 }
+  - { name: "devfs.rules", path: "/etc/devfs.rules", mode: 644 }
+  tags:
+  - comb-misc
+  - pkg-server
+
+- name: Install fractalcells MOTD
+  copy: src="motd" dest="/etc/motd" mode="444"
+  tags:
+  - branding
+  - comb-misc
+  - pkg-server
+
+- name: Install some packages
+  pkgng: name={{ item.name }} state=present
+  with_items:
+  - { name: zsh }
+  - { name: tmux }
+  - { name: secadm-kmod }
+  - { name: python27 }
+  - { name: py27-keyczar  }
+  - { name: py27-pycrypto  }
+  - { name: py27-fail2ban  }
+  - { name: vim-lite  }
+  - { name: rsync  }
+  - { name: zxfer  }
+  - { name: iftop  }
+  - { name: iocage-devel }
+  - { name: curl }
+  tags:
+  - comb-misc
+  - pkg-server
+  - fail2ban

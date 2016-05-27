@@ -1,0 +1,71 @@
+#certificate_authority:
+#  certificate_directory:                /usr/local/share/certs
+#  short_name:                           'foobar'
+#  root:
+#    output_password:                    'supersecr1t'
+#    default_bits:                       4096
+#    common_name:                        '<your company> Root Certificate Authority'
+#    email_address:                      'ca@your.company.tld'
+#    challenge_password:                 'hyperssecr1t'
+#  intermediate:
+#    output_password:                    'secr1t'
+#    default_bits:                       4096
+#    common_name:                        '<your company> Intermediate Certificate Authority'
+#    email_address:                      'ca@your.company.tld'
+#    challenge_password:                 'notlesssecr1t'
+#  proxy:
+#    common_name:                        'your.company.tld'
+#    organizational_unit:                '<your company>'
+#    default_bits:                       4096
+#    output_password:                    'still_secr1t'
+#    email_address:                      'info@your.company.tld'
+#    challenge_password:                 'moarsecr1t'
+#  country:                              'US'
+#  state:                                'CA'
+#  locality:                             'Palo Alto'
+#  organization:                         '<your company>'
+#  organizational_unit:                  '<your company> Certificate Authority'
+#external_domain:          'your.company.tld'
+
+config:
+#  openldap:
+#    server_name:         '<your company> Directory Server'
+#    manager_password:    'furthers3cret'
+#  smtpd:
+#    user:                 'charlie_root'
+#    password:             'omgsecret'
+#    email:                'charlie_root@gmail.com'
+#    relay:
+#      hostname:           'mx.your.domain.tld'
+#      port:               587
+#  zabbix:
+#    password:             'so1ncrediblysecr1t'
+  gitlab:
+    secrets:              '1234'
+    root_password:        'root_secr1t'
+#  openvpn:
+#    dhparam_strength: 1024
+data:
+  postgresql:
+    dbuser:       'postgres'
+    password:     '5VlIyve'
+#  redmine:
+#    dbname:       'redminedb'
+#    dbuser:       'redmine_dbuser'
+#    password:     'QbhiotM'
+#  zabbix:
+#    dbname:       'zabbix'
+#    dbuser:       'zabbix'
+#    password:     'iVPnz2K'
+  gitlab:
+    dbname:       'gitlab'
+    dbuser:       'gitlab'
+    password:     '2K3ApLd'
+user:
+  handle:       'chris'
+  id:           '1000'
+  name:         'Christian Meier'
+  groups:       'chris,wheel'
+  shell:        '/bin/sh'
+  password:     'notyourproblem'
+  ssh_pub_key:  'ssh-rsa AAAAB... chris@root.com'

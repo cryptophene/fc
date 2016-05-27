@@ -1,0 +1,20 @@
+external_domain:          'your.company.tld'
+
+config:
+  openldap:
+    server_name:         '<your company> Directory Server'
+    manager_password:    'furthers3cret'
+  smtpd:
+    user:                 'charlie_root'
+    password:             'omgsecret'
+    email:                'charlie_root@gmail.com'
+    relay:
+      hostname:           'mx.your.domain.tld'
+      port:               587
+  zabbix:
+    password:             'so1ncrediblysecr1t'
+  gitlab:
+    secrets:              '1234'
+    root_password:        'root_secr1t'
+  openvpn:
+    dhparam_strength: 1024

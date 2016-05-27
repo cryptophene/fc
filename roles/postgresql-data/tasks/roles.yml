@@ -1,0 +1,67 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+# generic postgres user
+- name: Check if creating {{ data.postgresql.dbuser }} user is necessary
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo SELECT rolname FROM pg_roles WHERE rolname = \\\'{{ data.postgresql.dbuser }}\\\' | psql template1 | grep {{ data.postgresql.dbuser }}\" "
+
+  register: postgresql_user_present
+  ignore_errors: true
+
+- name: Create PostgreSQL user
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo CREATE ROLE {{ data.postgresql.dbuser }} WITH SUPERUSER LOGIN CREATEDB CREATEROLE ENCRYPTED PASSWORD \\\'{{ data.postgresql.password }}\\\' | psql template1 \" "
+  when:
+  - postgresql_user_present | failed
+
+# redmine user
+- name: Check if creating {{ data.redmine.dbuser }} user is necessary
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo SELECT rolname FROM pg_roles WHERE rolname = \\\'{{ data.redmine.dbuser }}\\\' | psql template1 | grep {{ data.redmine.dbuser }}\" "
+  register: redmine_user_present
+  ignore_errors: true
+
+- name: Create Redmine user
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo CREATE ROLE {{ data.redmine.dbuser }} WITH LOGIN ENCRYPTED PASSWORD \\\'{{ data.redmine.password }}\\\' | psql template1 \" "
+  when:
+  - redmine_user_present | failed
+
+# zabbix user
+- name: Check if creating {{ data.zabbix.dbuser }} user is necessary
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo SELECT rolname FROM pg_roles WHERE rolname = \\\'{{ data.zabbix.dbuser }}\\\' | psql template1 | grep {{ data.zabbix.dbuser }}\" "
+  register: zabbix_user_present
+  ignore_errors: true
+
+- name: Create zabbix user
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo CREATE ROLE {{ data.zabbix.dbuser }} WITH LOGIN ENCRYPTED PASSWORD \\\'{{ data.zabbix.password }}\\\' | psql template1 \" "
+  when:
+  - zabbix_user_present | failed
+
+# gitlab user
+- name: Check if creating {{ data.gitlab.dbuser }} user is necessary
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo SELECT rolname FROM pg_roles WHERE rolname = \\\'{{ data.gitlab.dbuser }}\\\' | psql template1 | grep {{ data.gitlab.dbuser }}\" "
+  register: gitlab_user_present
+  ignore_errors: true
+
+- name: Create gitlab user
+  iocage: state=exec tag={{ postgresql_jail.uuid }} user=pgsql cmd="/bin/sh -c \"echo CREATE ROLE {{ data.gitlab.dbuser }} WITH LOGIN ENCRYPTED PASSWORD \\\'{{ data.gitlab.password }}\\\' | psql template1 \" "
+  when:
+  - gitlab_user_present | failed

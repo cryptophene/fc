@@ -1,0 +1,54 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Install NGINX
+  pkgng: name=nginx state=present
+  tags:
+  - pkg-server
+  - nginx_pkg
+
+- name: Create directories
+  file: path={{ item.path }} state=directory mode={{ item.mode }} owner={{ item.owner }} group={{ item.group }}
+  tags:
+  - nginx_pkg
+  - pkg-server
+  with_items:
+  - { path: '/usr/local/etc/nginx/conf.d', mode: '755', owner: root, group: wheel }
+  - { path: '/var/log/nginx', mode: '755', owner: www, group: www }
+
+- name: Deploy NGINX config files
+  template: src='{{ item.name }}.j2' dest='{{ item.path }}/{{ item.name }}' mode={{ item.mode}} owner={{ item.owner }} group={{ item.group }}
+  with_items:
+  - { name: "index.html", path: "/usr/local/www/nginx", mode: 644, owner: root, group: wheel  }
+  - { name: "nginx.conf", path: "/usr/local/etc/nginx", mode: 644, owner: root, group: wheel  }
+  - { name: "pkg-server.conf", path: "/usr/local/etc/nginx/conf.d", mode: 644, owner: root, group: wheel  }
+  register: nginx_internal_config_deployed
+  tags:
+  - nginx_pkg
+  - pkg-server
+
+- name: Start nginx
+  service: name=nginx state=started enabled=yes
+  tags:
+  - nginx_pkg
+  - pkg-server

@@ -1,0 +1,5 @@
+[default]
+itgitlab ansible_connection=ssh ansible_ssh_user=ansible ansible_ssh_port=22 ansible_ssh_private_key_file=annsible
+
+[fractalcells]
+itgitlab ansible_connection=ssh ansible_ssh_user=ansible ansible_ssh_port=22 ansible_ssh_private_key_file=ansible

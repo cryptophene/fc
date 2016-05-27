@@ -1,0 +1,19 @@
+[defaults]
+nocows=1
+ask_pass=true
+ask_sudo_pass=true
+private_key_file = /path/to/your/.ssh/private_key
+command_warnings = True
+hostfile = ./hosts
+ssh_args = -o ControlMaster=auto -o ControlPersist=6000s
+
+[fractalcells]
+ssh_args = -o ControlMaster=auto -o ControlPersist=6000s
+hostfile = ./hosts
+private_key_file = /path/to/your/.ssh/private_key
+#remote_port = 9022
+remote_user = your_username
+become_method = sudo
+
+[ssh_connection]
+pipelining = True

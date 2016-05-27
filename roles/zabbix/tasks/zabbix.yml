@@ -1,0 +1,76 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Make sure Zabbix jail is started
+  iocage: state=started tag='{{ production_jails.zabbix.tag }}'
+  register: zabbix_jail
+
+- name: Enable zabbix services
+  when:
+  - zabbix_jail|success
+  lineinfile: dest={{ zabbix_jail_dir.stat.path }}/etc/rc.conf state=present insertafter=EOF line="{{ item.line }}"
+  with_items:
+  - { line: "zabbix_server_enable=\"YES\"" }
+
+- name: Install zabbix pkgs
+  when:
+  - zabbix_jail|success
+  iocage: state=pkg tag={{ production_jails.zabbix.tag }} cmd="install -y {{ production_jails.zabbix.pkgs | join(' ') }}"
+
+- name: Create directories
+  file: path={{ item.path }} state=directory mode={{ item.mode }} owner={{ item.owner }} group={{ item.group }}
+  when:
+  - zabbix_jail|success
+  with_items:
+  - { path: '{{ zabbix_jail_dir.stat.path }}/var/log/zabbix/', mode: '755', owner: 122, group: 122 }
+
+- name: Deploy Zabbix configs
+  template: src='{{ item.name }}.j2' dest='{{ zabbix_jail_dir.stat.path }}/{{ item.path }}/{{ item.name }}' mode=0644
+  with_items:
+  - { name: "zabbix_server.conf", path: "/usr/local/etc/zabbix24", mode: 644 }
+  - { name: "authmethod_zabbix.sql", path: "/root", mode: 644 }
+  when:
+  - zabbix_jail|success
+
+- name: Find Zabbix db prepared cookie
+  stat: path={{ zabbix_jail_dir.stat.path }}/root/.db.prepared
+  register: zabbix_db_prepared_cookie
+- name: Load Zabbix DB schema SQL
+  iocage: state=exec tag={{ production_jails.zabbix.tag }} user=root cmd="/bin/sh -c \"PGPASSWORD='{{ data.zabbix.password}}' psql -h {{ production_jails.postgresql.ip }} -U {{ data.zabbix.dbuser }} {{ data.zabbix.dbname }} < {{ item.path }} && touch /root/.db_prepared\" "
+  with_items:
+  - { path: "/usr/local/share/zabbix24/server/database/postgresql/schema.sql" }
+  - { path: "/usr/local/share/zabbix24/server/database/postgresql/images.sql" }
+  - { path: "/usr/local/share/zabbix24/server/database/postgresql/data.sql" }
+  when:
+  - not zabbix_db_prepared_cookie.stat.exists
+
+- name: Start Zabbix server
+  iocage: state=exec tag={{ zabbix_jail.uuid }} cmd="/bin/sh -c \"service zabbix_server restart\""
+  when:
+  - zabbix_jail|success
+
+- name: Load Zabbix Authmethod SQL
+  iocage: state=exec tag={{ production_jails.zabbix.tag }} user=root cmd="/bin/sh -c \"PGPASSWORD='{{ data.zabbix.password}}' psql -h {{ production_jails.postgresql.ip }} -U {{ data.zabbix.dbuser }} {{ data.zabbix.dbname }} < /root/authmethod_zabbix.sql \""
+
+- name: Remove Zabbix Authmethod SQL
+  file: path={{ zabbix_jail_dir.stat.path }}/root/authmethod_zabbix.sql state=absent

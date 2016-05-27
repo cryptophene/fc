@@ -1,0 +1,60 @@
+# Copyright 2015, Perceivon Hosting Inc.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY PERCEIVON HOSTING INC. AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL PERCEIVON HOSTING INC. OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+---
+- name: Configure jails network interface
+  lineinfile:
+    dest: '/etc/rc.conf'
+    state: present
+    line: "cloned_interfaces=\"{{ internal_interface }} {{ openvpn.interface }}\""
+  register: cloned_interfaces
+
+- name: See if {{ internal_interface }} already exists
+  shell: ifconfig {{ internal_interface }}
+  register: jails_interface_exists
+  ignore_errors: yes
+
+# TODO: Don't cloneup if a network interface already exists
+- name: Create jails network interface
+  run_once: true
+  command: service netif cloneup
+  when: jails_interface_exists|failed
+
+- name: Configure internal ip on jails network interface
+  lineinfile:
+    dest: '/etc/rc.conf'
+    state: present
+    line: 'ifconfig_{{ internal_interface }}="inet {{ internal_ip }} netmask 255.255.255.255"'
+  register: internal_ip_output
+
+- name: See if {{ internal_interface }} needs restarting
+  shell: ifconfig {{ internal_interface }} | grep {{ internal_ip }}
+  register: internal_ip_on_loopback_interface
+  ignore_errors: yes
+
+# 10.1 netif calls routing which is broken for loopback devices
+- name: Check if internal ip needs adding to jails network interface
+  shell: service netif restart lo1 || true
+  when:  internal_ip_on_loopback_interface | failed
+
+- name: Add network forwarding sysctl.
+  sysctl: name=net.inet.ip.forwarding value=1 state=present sysctl_set=yes
